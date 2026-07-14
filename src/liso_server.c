@@ -9,7 +9,7 @@
 #include "parse.h"
 #include <sys/stat.h> // stat函数获取文件元信息
 #include <time.h>
-#include <fcntl.h> // ??
+#include <fcntl.h> // 文件控制 open ORDONLY
 #define ECHO_PORT 9999
 #define BUF_SIZE 4096
 
@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
             
             else if(strcmp(request->http_method, "GET") == 0){
             //向客户端发送get格式的响应 
-            //不能直接字符串用 == 这是地址？？？
+            //#a't't
             // GET: 头 + body
                     time_t now = time(NULL);
                     struct tm *t = gmtime(&now);
@@ -201,6 +201,30 @@ int main(int argc, char *argv[]) {
                     }
             }else if(strcmp(request->http_method, "POST")== 0){
             //向客户端发送post格式的响应
+            //查找body起始位置（在\r\n\r\n之后）
+            char *body_start = strstr(buf, "\r\n\r\n");
+            if (body_start != NULL) {
+                body_start += 4; //跳过\r\n\r\n
+                int body_len = (buf + readret) - body_start;
+
+                //先复制body到临时缓冲区（因为sprintf会覆盖buf）
+                char body_buf[BUF_SIZE];
+                int copy_len = body_len < BUF_SIZE ? body_len : BUF_SIZE - 1;
+                memcpy(body_buf, body_start, copy_len);
+                body_buf[copy_len] = '\0';
+
+                sprintf(buf,
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: %d\r\n"
+                    "\r\n"
+                    "%s",
+                    copy_len,
+                    body_buf
+                );
+            } else {
+                sprintf(buf, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+            }
             //这里原样返回
             }else if(strcmp(request->http_method, "HEAD") == 0){
             //向客户端发送head格式的响应
@@ -236,12 +260,9 @@ int main(int argc, char *argv[]) {
             }
             free(request);
         }
-
-
             send(client_sock, buf, strlen(buf), 0);
             memset(buf, 0, BUF_SIZE);
         } 
-
         if (readret == -1)
         {
             close_socket(client_sock);

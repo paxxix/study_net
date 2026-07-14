@@ -26,7 +26,7 @@
 
 int main(int argc, char* argv[])
 {
-    if (argc != 4)
+    if (argc != 4) // 程序名 ip port file
     {
         fprintf(stderr, "usage: %s <server-ip> <port> <file>\n",argv[0]);
         return EXIT_FAILURE;
@@ -63,7 +63,6 @@ int main(int argc, char* argv[])
 // sock： socket函数调用返回的套接字
 // server_addr：服务端的地址
 // server_ addrlen: 服务端地址的长度
-
     {
         fprintf(stderr, "Connect");
         return EXIT_FAILURE;

@@ -8,7 +8,7 @@ Request *parse(const char *buffer, const int size, int socketFd) {
     enum {
         STATE_START = 0, STATE_CR, STATE_CRLF, STATE_CRLFCR, STATE_CRLFCRLF
     };
-
+    //FSM 有限状态机
     int i = 0;
     size_t offset = 0;
     char parse_buf[8192] = {0};
