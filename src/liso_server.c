@@ -73,7 +73,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Failed creating socket.\n"); 
         return EXIT_FAILURE;
     }
-
     int opt = 1;
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
 //  参数	值	含义
@@ -146,112 +145,126 @@ int main(int argc, char *argv[]) {
 //返回读取的字节数
         {
             Request* request = parse(buf,readret,client_sock);
-             
-            //stat的使用
+
+            // 预先计算 full_path 和 stat 结果，所有分支共享
+            char full_path[4096];
+            struct stat file_stat;
+            int file_exists = -1;
             if(request == NULL){
-            //请求有错误 向客户端发送400格式的响应
                 sprintf(buf, "HTTP/1.1 400 Bad request\r\n\r\n");
             }
-            else if(strcmp(request->http_version, "HTTP/1.1") != 0){
-            //向客户端发送505格式的响应
-            sprintf(buf, "HTTP/1.1 505 HTTP Version not supported\r\n\r\n");
-            }else {
-            struct stat file_stat;
-            char full_path[4096];
-            if (strcmp(request->http_uri, "/") == 0) {
-                sprintf(full_path, "static_site/index.html");
-            } else {
-                sprintf(full_path, "static_site%s", request->http_uri);
+            if (request != NULL) {
+                if (strcmp(request->http_uri, "/") == 0) {
+                    sprintf(full_path, "static_site/index.html");
+                } else {
+                    sprintf(full_path, "static_site%s", request->http_uri);
+                }
+                file_exists = stat(full_path, &file_stat);
             }
-            //向客户端发送404格式的响应
-            if(stat(full_path,&file_stat) < 0){
+
+            else if(strcmp(request->http_version, "HTTP/1.1") != 0){
+                sprintf(buf, "HTTP/1.1 505 HTTP Version not supported\r\n\r\n");
+            }
+            else if(file_exists < 0){
                 sprintf(buf, "HTTP/1.1 404 Not Found\r\n\r\n");
             }
-            
+            //GET
             else if(strcmp(request->http_method, "GET") == 0){
-            //向客户端发送get格式的响应 
-            //#a't't
-            // GET: 头 + body
-                    time_t now = time(NULL);
-                    struct tm *t = gmtime(&now);
-                    char date_buf[128];
-                    strftime(date_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", t);
+                time_t now = time(NULL);
+                struct tm *t = gmtime(&now);
+                char date_buf[128];
+                strftime(date_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", t);
 
-                    struct tm *mt = gmtime(&file_stat.st_mtime);
-                    char mod_buf[128];
-                    strftime(mod_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", mt);
+                struct tm *mt = gmtime(&file_stat.st_mtime);
+                char mod_buf[128];
+                strftime(mod_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", mt);
 
-                    int header_len = sprintf(buf,
-                        "HTTP/1.1 200 OK\r\n"
-                        "Server: liso/1.1\r\n"
-                        "Date: %s\r\n"
-                        "Content-Length: %ld\r\n"
-                        "Content-type: text/html\r\n"
-                        "Last-modified: %s\r\n"
-                        "Connection: keep-alive\r\n"
-                        "\r\n",
-                        date_buf, file_stat.st_size, mod_buf
-                    );
-
-                    // 读文件内容追加到 buf
-                    int fd = open(full_path, O_RDONLY);
-                    if (fd >= 0) {
-                        read(fd, buf + header_len, BUF_SIZE - header_len);
-                        close(fd);
-                    }
-            }else if(strcmp(request->http_method, "POST")== 0){
-            //向客户端发送post格式的响应
-            //查找body起始位置（在\r\n\r\n之后）
-            char *body_start = strstr(buf, "\r\n\r\n");
-            if (body_start != NULL) {
-                body_start += 4; //跳过\r\n\r\n
-                int body_len = (buf + readret) - body_start;
-
-                //先复制body到临时缓冲区（因为sprintf会覆盖buf）
-                char body_buf[BUF_SIZE];
-                int copy_len = body_len < BUF_SIZE ? body_len : BUF_SIZE - 1;
-                memcpy(body_buf, body_start, copy_len);
-                body_buf[copy_len] = '\0';
-
-                sprintf(buf,
+                int header_len = sprintf(buf,
                     "HTTP/1.1 200 OK\r\n"
-                    "Content-Type: text/plain\r\n"
-                    "Content-Length: %d\r\n"
-                    "\r\n"
-                    "%s",
-                    copy_len,
-                    body_buf
+                    "Server: liso/1.1\r\n"
+                    "Date: %s\r\n"
+                    "Content-Length: %ld\r\n"
+                    "Content-type: text/html\r\n"
+                    "Last-modified: %s\r\n"
+                    "Connection: keep-alive\r\n"
+                    "\r\n",
+                    date_buf, file_stat.st_size, mod_buf
                 );
-            } else {
-                sprintf(buf, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+
+                int fd = open(full_path, O_RDONLY);
+                if (fd >= 0) {
+                    read(fd, buf + header_len, BUF_SIZE - header_len);
+                    close(fd);
+                }
             }
-            //这里原样返回
-            }else if(strcmp(request->http_method, "HEAD") == 0){
-            //向客户端发送head格式的响应
-            time_t now = time(NULL);
-                    struct tm *t = gmtime(&now);
-                    char date_buf[128];
-                    strftime(date_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", t);
-                    struct tm *mt = gmtime(&file_stat.st_mtime);
-                    char mod_buf[128];
-                    strftime(mod_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", mt);
+            //POST
+            else if(strcmp(request->http_method, "POST") == 0){
+                time_t now = time(NULL);
+                struct tm *t = gmtime(&now);
+                char date_buf[128];
+                strftime(date_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", t);
+
+                char *body_start = strstr(buf, "\r\n\r\n");
+                if (body_start != NULL) {
+                    body_start += 4;
+                    int body_len = (buf + readret) - body_start;
+
+                    char body_buf[BUF_SIZE];
+                    int copy_len = body_len < BUF_SIZE ? body_len : BUF_SIZE - 1;
+                    memcpy(body_buf, body_start, copy_len);//memcpy
+                    body_buf[copy_len] = '\0';
+
                     sprintf(buf,
                         "HTTP/1.1 200 OK\r\n"
                         "Server: liso/1.1\r\n"
                         "Date: %s\r\n"
-                        "Content-Length: %ld\r\n"
-                        "Content-type: \r\n"
-                        "Last-modified: %s\r\n"
+                        "Content-Type: text/plain\r\n"
+                        "Content-Length: %d\r\n"
+                        "Connection: keep-alive\r\n"
+                        "\r\n"
+                        "%s",
+                        date_buf,
+                        copy_len,
+                        body_buf
+                    );
+                } else {
+                    sprintf(buf,
+                        "HTTP/1.1 200 OK\r\n"
+                        "Server: liso/1.1\r\n"
+                        "Date: %s\r\n"
+                        "Content-Length: 0\r\n"
                         "Connection: keep-alive\r\n"
                         "\r\n",
-                        date_buf, file_stat.st_size, mod_buf
+                        date_buf
                     );
-
-            }else{
-            //向客户端发送501格式的响应
-            sprintf(buf, "HTTP/1.1 501 Not Implemented\r\n\r\n");
+                }
             }
-        }
+            //HEAD
+            else if(strcmp(request->http_method, "HEAD") == 0){
+                time_t now = time(NULL);
+                struct tm *t = gmtime(&now);
+                char date_buf[128];
+                sprintf(date_buf,128,"%a,%d %b %Y %H:%M:%S GMT",t);
+
+                struct tm *mt = gmtime(&file_stat.st_mtime);
+                char mod_buf[128];
+                strftime(mod_buf, 128, "%a, %d %b %Y %H:%M:%S GMT", mt);
+
+                sprintf(buf,
+                    "HTTP/1.1 200 OK\r\n"
+                    "Server: liso/1.1\r\n"
+                    "Date: %s\r\n"
+                    "Content-Length: %ld\r\n"
+                    "Content-type: text/html\r\n"
+                    "Last-modified: %s\r\n"
+                    "Connection: keep-alive\r\n"
+                    "\r\n",
+                    date_buf, file_stat.st_size, mod_buf
+                );
+            }
+            else{
+                sprintf(buf, "HTTP/1.1 501 Not Implemented\r\n\r\n");
+            }
 
 //释放request 空间
         if(request != NULL){
